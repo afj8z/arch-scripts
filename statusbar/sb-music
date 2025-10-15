@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+
+# This script integrates Spotify and other media players using playerctl.
+# It prioritizes actively playing media and falls back to paused media.
+
+# Ensure the playerctl update loop is running in the background for real-time updates
+pidof -x playerctl-loop >/dev/null 2>&1 || playerctl-loop >/dev/null 2>&1 &
+
+# ---- CONFIGURATION ----
+# Define the order of priority for players. The script will check them in this order.
+# You can add or remove players like 'vlc', 'firefox', etc.
+PLAYER_PRIORITY="spotify firefox chromium mpv mpd"
+
+# Icons for different states
+ICON_PLAYING="▶"
+ICON_PAUSED="❚❚"
+
+# Location for temporary files
+TMP_DIR="/tmp"
+FORMAT_FILE="$TMP_DIR/statusbar_media_format"
+PLAYER_FILE="$TMP_DIR/statusbar_active_player"
+
+# ---- FORMAT TOGGLING ----
+# Alternate between "artist - title" and "album - title" on left-click.
+[ ! -f "$FORMAT_FILE" ] && echo "0" > "$FORMAT_FILE"
+read -r FORMAT < "$FORMAT_FILE"
+
+if [ "$FORMAT" -eq 0 ]; then
+    META="{{ trunc(artist, 20) }} - {{ trunc(title, 25) }}"
+else
+    META="{{ trunc(album, 20) }} - {{ trunc(title, 25) }}"
+fi
+
+# ---- SCRIPT LOGIC ----
+# 1. Check for any player that is actively "Playing".
+for PLAYER in $PLAYER_PRIORITY; do
+    STATUS=$(playerctl --player="$PLAYER" status 2>/dev/null)
+    if [ "$STATUS" = "Playing" ]; then
+        # Output the playing track and save the active player for click-actions
+        echo "$ICON_PLAYING $(playerctl metadata --player "$PLAYER" --format "$META")"
+        echo "$PLAYER" > "$PLAYER_FILE"
+        exit 0
+    fi
+done
+
+# 2. If no player is "Playing", check for any that is "Paused".
+for PLAYER in $PLAYER_PRIORITY; do
+    STATUS=$(playerctl --player="$PLAYER" status 2>/dev/null)
+    if [ "$STATUS" = "Paused" ] && [ "$PLAYER" = "spotify" ]; then
+        # Output the paused track and save the active player
+        echo "$ICON_PAUSED $(playerctl metadata --player "$PLAYER" --format "$META")"
+        echo "$PLAYER" > "$PLAYER_FILE"
+        exit 0
+    fi
+done
+
+# 3. If no player is found, print nothing.
+echo ""
+> "$PLAYER_FILE" # Clear the active player file
+
+
+# ---- CLICK ACTIONS ----
+# Actions are triggered based on the last known active player.
+ACTIVE_PLAYER=$(cat "$PLAYER_FILE" 2>/dev/null)
+
+case $BLOCK_BUTTON in
+    # Left-click (1): Toggle display format
+    1) echo "$(( (FORMAT + 1) % 2 ))" > "$FORMAT_FILE" ;;
+
+    # Middle-click (2): Play/Pause the last active player
+    2) [ -n "$ACTIVE_PLAYER" ] && playerctl --player "$ACTIVE_PLAYER" play-pause ;;
+
+    # Right-click (3): Open volume mixer
+    3) setsid -f "$TERMINAL" -e pulsemixer ;;
+
+    # Scroll-up (4): Volume up
+    4) amixer -q sset Master 5%+ ;;
+
+    # Scroll-down (5): Volume down
+    5) amixer -q sset Master 5%- ;;
+esac

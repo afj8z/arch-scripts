@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+WALL_BASE_DIR="$HOME/pictures/adjustee/"
+WALLPAPER_DIR="$HOME/pictures/wallpapers"
+
+gowall convert --dir "$WALL_BASE_DIR" -t "$1" --output "$WALLPAPER_DIR"

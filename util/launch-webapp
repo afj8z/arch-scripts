@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# 1. Find the user's default browser .desktop file
+browser=$(xdg-settings get default-web-browser)
+
+# 2. Default to a Chromium-based browser if the default isn't one
+#    This ensures the --app flag will be available.
+case $browser in
+  google-chrome*|brave-browser*|microsoft-edge*|opera*|vivaldi*|helium-browser*)
+    ;; # If it's a known Chromium variant, do nothing.
+  *)
+    # Otherwise, fall back to trying chromium.
+    browser="firefox.desktop"
+    ;;
+esac
+
+# 3. Extract the executable path from the .desktop file
+#    It searches standard locations for the file.
+executable_path=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' {~/.local,~/.nix-profile,/usr}/share/applications/$browser 2>/dev/null | head -1)
+
+# 4. Check if an executable was found
+if [ -z "$executable_path" ]; then
+  echo "Error: Could not find executable for $browser" >&2
+  exit 1
+fi
+
+# 5. Execute the browser in app mode, detached from the terminal
+#    'exec' replaces this script process with the browser process.
+#    'setsid' detaches the browser from the terminal.
+exec setsid "$executable_path" -P preview-profile --app="$1" --new-window "${@:2}"

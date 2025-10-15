@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+# --- Define the main archive directory ---
+ARCHIVE_DIR="$HOME/.archive"
+
+# --- Main logic based on the first argument ---
+if [[ "$1" == "-l" || "$1" == "--list" ]]; then
+    #========================#
+    #   LIST ARCHIVED ITEMS  #
+    #========================#
+    echo "Checking for archives related to the current directory..."
+
+    CWD=$(realpath ".")
+    HOME_DIR=$(realpath ~)
+
+    # Create the 'archive name prefix' for the current directory
+    # Example: if in ~/.config, the prefix becomes '..config'
+    PATH_PART="/${CWD#$HOME_DIR}"
+    ARCHIVE_PREFIX="${PATH_PART//\//.}"
+    # On ~, path part is '/', prefix is '.' On ~/.config, path part is '/.config', prefix is '..config'
+    # The length of the prefix helps us find subdirectories
+    PREFIX_LEN=${#ARCHIVE_PREFIX}
+
+    direct_children=()
+    deeper_children_count=0
+
+    # Loop through all items in the archive
+    for item in "$ARCHIVE_DIR"/*; do
+        # Skip if the item doesn't exist (e.g., empty dir)
+        [ -e "$item" ] || continue
+        
+        archived_name=$(basename "$item")
+
+        # Check if the archived item belongs to the current directory or a subdirectory
+        if [[ "$archived_name" == "$ARCHIVE_PREFIX"* ]]; then
+            # Get the part of the name after the prefix
+            local_path_part="${archived_name:$PREFIX_LEN}"
+            # Remove a leading dot if it exists
+            [[ "$local_path_part" == .* ]] && local_path_part="${local_path_part:1}"
+            
+            # If the remaining part contains no more dots, it's a direct child
+            if [[ "$local_path_part" != *.* ]]; then
+                direct_children+=("$local_path_part")
+            else
+                ((deeper_children_count++))
+            fi
+        fi
+    done
+
+    # --- Print the results ---
+    if [ ${#direct_children[@]} -eq 0 ] && [ $deeper_children_count -eq 0 ]; then
+        echo "No relevant archives found for this location."
+    else
+        if [ ${#direct_children[@]} -gt 0 ]; then
+            echo -e "\nDirectly archived items in this folder:"
+            for child in "${direct_children[@]}"; do
+                echo "  - $child"
+            done
+        fi
+        if [ $deeper_children_count -gt 0 ]; then
+            echo -e "\nFound $deeper_children_count archived item(s) from subdirectories."
+        fi
+    fi
+
+elif [ -z "$1" ]; then
+    #========================#
+    #       USAGE INFO       #
+    #========================#
+    echo "Usage: unarchive-it <name_to_restore>"
+    echo "   or: unarchive-it --list"
+    exit 1
+else
+    #========================#
+    # RESTORE ARCHIVED ITEM  #
+    #========================#
+    CWD=$(realpath ".")
+    HOME_DIR=$(realpath ~)
+    TARGET_NAME="$1"
+
+    # Construct the expected archived name from the current path and target name
+    PATH_PART="/${CWD#$HOME_DIR}/$TARGET_NAME"
+    EXPECTED_ARCHIVE_NAME="${PATH_PART//\//.}"
+    
+    ARCHIVED_ITEM_PATH="$ARCHIVE_DIR/$EXPECTED_ARCHIVE_NAME"
+
+    if [ -e "$ARCHIVED_ITEM_PATH" ]; then
+        # The destination is simply the current directory
+        mv "$ARCHIVED_ITEM_PATH" "$CWD/"
+        echo "Restored '$TARGET_NAME' to the current directory."
+    else
+        echo "Error: Could not find an archive for '$TARGET_NAME' at this location."
+        exit 1
+    fi
+fi

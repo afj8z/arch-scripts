@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+bookmarks_file="$HOME/.bookmarks.txt"
+
+if [ ! -f "$bookmarks_file" ]; then
+    rofi -e "Bookmarks file not found at: $bookmarks_file"
+    exit 1
+fi
+
+rofi_options=$(awk -F '=' '{
+    # Trim leading/trailing whitespace from the URL and alias
+    url = $1; gsub(/^[ \t]+|[ \t]+$/, "", url);
+    alias = $2; gsub(/^[ \t]+|[ \t]+$/, "", alias);
+
+    # Create a clean version of the URL for display
+    trimmed_url = url;
+    sub(/https?:\/\//, "", trimmed_url); # Remove http:// or https://
+    sub(/\/$/, "", trimmed_url);         # Remove trailing slash
+
+    # Print the formatted string: "alias -- trimmed.url"
+    printf "%-20s -- %s\n", alias, trimmed_url
+}' "$bookmarks_file")
+
+chosen_entry=$(echo -e "$rofi_options" | bemenu -W 0.4 -l 9 -c -p "Bookmarks")
+
+if [ -z "$chosen_entry" ]; then
+    exit 0
+fi
+
+chosen_alias=$(echo "$chosen_entry" | awk '{print $1}')
+
+target_url=$(awk -F '=' -v search_alias="$chosen_alias" '{
+    # Trim whitespace from the alias in the file for a clean comparison
+    alias_from_file = $2;
+    gsub(/^[ \t]+|[ \t]+$/, "", alias_from_file);
+
+    if (alias_from_file == search_alias) {
+        # Trim whitespace from the URL and print it
+        url_from_file = $1;
+        gsub(/^[ \t]+|[ \t]+$/, "", url_from_file);
+        print url_from_file;
+        exit; # Stop searching once we find the match
+    }
+}' "$bookmarks_file")
+
+if [ -n "$target_url" ]; then
+    firefox "$target_url" &> /dev/null &
+else
+    rofi -e "Error: Could not find a URL for the alias '$chosen_alias'."
+fi

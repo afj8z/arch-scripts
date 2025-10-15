@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+if [ -z "$1" ]; then
+  echo "Usage: archive-it <file_or_folder_to_archive>"
+  exit 1
+fi
+
+if [ ! -e "$1" ]; then
+  echo "Error: '$1' not found."
+  exit 1
+fi
+
+ARCHIVE_DIR="$HOME/.archive"
+
+mkdir -p "$ARCHIVE_DIR"
+
+# 'realpath' resolves '..' and '~' to a standard path.
+SOURCE_PATH=$(realpath "$1")
+
+HOME_DIR=$(realpath ~)
+
+# 1. Remove the home directory part from the source path.
+#    Example: /home/user/.config/nvim -> /.config/nvim
+RELATIVE_PATH="${SOURCE_PATH#$HOME_DIR}"
+
+# 2. Replace every slash '/' with a dot '.'.
+TRANSFORMED_NAME="${RELATIVE_PATH//\//.}"
+
+DEST_PATH="$ARCHIVE_DIR/$TRANSFORMED_NAME"
+
+# Using --backup=numbered (-b) is a good safety net to prevent overwrites.
+mv -b "$SOURCE_PATH" "$DEST_PATH"
+
+echo "Archived to: $DEST_PATH"

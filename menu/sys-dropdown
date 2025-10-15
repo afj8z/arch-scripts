@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Picker menu for system management tools
+
+# fzf options
+OPTS="--keep-right \
+  --layout reverse --margin=0 \
+  --bind=tab:replace-query"
+
+selection=$(compgen -c | rg -e 'nmtui$' -e 'bluetui$' -e 'power-mode' | fzf $OPTS)
+
+if [ -z "$selection" ]; then
+    exit 0
+fi
+
+case "$selection" in
+    "nmtui" | "bluetui")
+        exec $selection
+        ;;
+    "power-mode")
+        $selection
+        echo -e "\nScript finished. Press any key to close."
+        read -n 1 -s -r
+        ;;
+    *)
+        echo "Unknown selection: $selection"
+        sleep 2
+        ;;
+esac

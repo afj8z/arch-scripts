@@ -1,0 +1,136 @@
+#!/usr/bin/env sh
+# Send audio / brightness notifications to dunst (progress style)
+# deps: dunstify, wpctl (PipeWire), brightnessctl
+# icons: Papirus (audio-volume-*, display-brightness-*-symbolic)
+
+set -eu
+
+tag_audio="string:x-canonical-private-synchronous:audio"
+tag_bright="string:x-canonical-private-synchronous:brightness"
+tag_mic="string:x-canonical-private-synchronous:mic"
+
+icon_for_volume() {
+  v="$1"
+  if [ "$v" -le 0 ]; then echo "audio-volume-muted"
+  elif [ "$v" -le 30 ]; then echo "audio-volume-low"
+  elif [ "$v" -le 70 ]; then echo "audio-volume-medium"
+  else echo "audio-volume-high"
+  fi
+}
+
+icon_for_brightness() {
+  b="$1"
+  if [ "$b" -le 0 ]; then echo "display-brightness-off-symbolic"
+  elif [ "$b" -le 30 ]; then echo "display-brightness-low-symbolic"
+  elif [ "$b" -le 70 ]; then echo "display-brightness-medium-symbolic"
+  else echo "display-brightness-high-symbolic"
+  fi
+}
+
+get_vol_pct() {
+  # wpctl get-volume @DEFAULT_AUDIO_SINK@  -> "Volume: 0.45"
+  wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{printf("%d\n", ($2*100)+0.5)}'
+}
+
+is_sink_muted() {
+  # wpctl get-mute @DEFAULT_AUDIO_SINK@   -> "Mute: true/false"
+  wpctl get-volume @DEFAULT_AUDIO_SINK@ | awk '{print tolower($3)}'
+}
+
+get_brightness_pct() {
+  # brightnessctl -m -> name,desc,id,percent,[...]
+  brightnessctl -m 2>/dev/null | awk -F, '{gsub(/[%<>]/,"",$4); print int($4+0)}'
+}
+
+# ---- UTF-8 safe inline bar (no tr) ----
+# Fallback to ASCII if the environment isn't UTF-8.
+case "${LC_ALL:-}${LANG:-}" in
+  *UTF-8*|*utf8*) BAR_FULL=''; BAR_EMPTY='○';;
+  *)               BAR_FULL='#'; BAR_EMPTY='-';;
+esac
+
+repeat() {
+  # repeat <char> <count>
+  ch="$1"; n="${2:-0}"; out=""
+  i=0
+  while [ "$i" -lt "$n" ]; do out="$out$ch"; i=$((i+1)); done
+  printf '%s' "$out"
+}
+
+# choose your bar width once (20 steps = 5% each)
+BAR_WIDTH=20
+
+# UTF-8 safe glyphs picked earlier:
+# BAR_FULL / BAR_EMPTY + repeat() stay the same
+
+inline_bar() {
+  pct="$1"; width="${2:-$BAR_WIDTH}"
+  [ "$pct" -lt 0 ] && pct=0
+  [ "$pct" -gt 100 ] && pct=100
+
+  # ceil((pct*width)/100) without floating point
+  filled=$(( (pct * width + 99) / 100 ))
+  [ "$filled" -gt "$width" ] && filled="$width"
+
+  empty=$((width - filled))
+  printf '%s%s' "$(repeat "$BAR_FULL" "$filled")" "$(repeat "$BAR_EMPTY" "$empty")"
+}
+
+notify_volume() {
+  vol="$(get_vol_pct)"
+  muted="$(is_sink_muted)"
+  if [ "$muted" = "[muted]" ] || [ "$vol" -le 0 ]; then
+	summary=$(printf "Vol %s mut" "$(inline_bar "0000" "$BAR_WIDTH")")
+    dunstify -a notify-media -h "$tag_audio" "$summary" -t 1500 --icon audio-volume-muted
+  else
+	summary=$(printf "Vol %s %d%%" "$(inline_bar "$vol" "$BAR_WIDTH")" "$vol")
+    dunstify -a notify-media -h "$tag_audio" "$summary" -t 1500 --icon "$(icon_for_volume "$vol")"
+  fi
+}
+
+notify_brightness() {
+  br="$(get_brightness_pct)"
+  summary=$(printf "Bri %s %d%%" "$(inline_bar "$br" "$BAR_WIDTH")" "$br")
+  dunstify -a notify-media -h "$tag_bright" "$summary" -t 1500 --icon "$(icon_for_brightness "$br")"
+}
+
+notify_mic() {
+  # Default source mute state
+  micmuted="$(wpctl get-mute @DEFAULT_AUDIO_SOURCE@ | awk '{print tolower($2)}')"
+  if [ "$micmuted" = "true" ]; then
+    dunstify -a notify-media -h "$tag_mic" "Mic: Muted" -t 1500 --icon microphone-sensitivity-muted-symbolic
+  else
+    dunstify -a notify-media -h "$tag_mic" "Mic: On" -t 1500 --icon microphone-sensitivity-high-symbolic
+  fi
+}
+
+case "${1:-}" in
+  vol_up)
+    wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
+    notify_volume
+    ;;
+  vol_down)
+    wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-
+    notify_volume
+    ;;
+  vol_mute)
+    wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+    notify_volume
+    ;;
+  mic_mute)
+    wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+    notify_mic
+    ;;
+  bright_up)
+    brightnessctl -e4 -n2 set 5%+ >/dev/null
+    notify_brightness
+    ;;
+  bright_down)
+    brightnessctl -e4 -n2 set 5%- >/dev/null
+    notify_brightness
+    ;;
+  *)
+    echo "Usage: $0 {vol_up|vol_down|vol_mute|mic_mute|bright_up|bright_down}" >&2
+    exit 2
+    ;;
+esac

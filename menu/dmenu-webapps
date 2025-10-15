@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+index_file="$HOME/.local/share/applications/app.index"
+
+if [ ! -f "$index_file" ]; then
+    bemenu -e "WebApp index file not found at: $index_file"
+    exit 1
+fi
+
+rofi_options=$(awk -F '=' '{
+    url = $1; gsub(/^[ \t]+|[ \t]+$/, "", url);
+    app_name = $2; gsub(/^[ \t]+|[ \t]+$/, "", app_name);
+
+    trimmed_url = url;
+    sub(/https?:\/\//, "", trimmed_url); # Remove http:// or https://
+    sub(/\/$/, "", trimmed_url);         # Remove trailing slash
+
+    printf "%-20s\n", app_name
+}' "$index_file")
+
+chosen_entry=$(echo -e "$rofi_options" | bemenu -W 0.2 -l 4 -c -p "Launch WebApp")
+
+if [ -z "$chosen_entry" ]; then
+    exit 0
+fi
+
+chosen_app=$(echo "$chosen_entry" | awk '{print $1}')
+
+target_url=$(awk -F '=' -v search_app="$chosen_app" '{
+    app_from_file = $2;
+    gsub(/^[ \t]+|[ \t]+$/, "", app_from_file);
+
+    if (app_from_file == search_app) {
+        url_from_file = $1;
+        gsub(/^[ \t]+|[ \t]+$/, "", url_from_file);
+        print url_from_file;
+        exit; # Stop searching once we find the match
+    }
+}' "$index_file")
+
+if [ -n "$target_url" ]; then
+    launch-webapp "$chosen_app" "$target_url" &> /dev/null &
+else
+    bemenu -e "Error: Could not find a URL for the WebApp '$chosen_app'."
+fi

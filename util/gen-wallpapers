@@ -1,6 +1,67 @@
 #!/usr/bin/env bash
 
+# --- Configuration ---
 WALL_BASE_DIR="$HOME/pictures/adjustee/"
 WALLPAPER_DIR="$HOME/pictures/wallpapers"
 
-gowall convert --dir "$WALL_BASE_DIR" -t "$1" --output "$WALLPAPER_DIR"
+# --- Initialize Variables ---
+brightness_value=""
+theme=""
+
+# --- Argument Parsing ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -b|--brightness)
+            if [ -z "$2" ]; then
+                echo "Error: --brightness (-b) flag requires a float value." >&2
+                exit 1
+            fi
+            brightness_value="$2"
+            shift 2
+            ;;
+        *)
+            if [ -n "$theme" ]; then
+                 echo "Error: Please specify only one theme." >&2
+                 exit 1
+            fi
+            theme="$1"
+            shift
+            ;;
+    esac
+done
+
+# --- Validation ---
+if [ -z "$theme" ]; then
+    echo "Error: A theme must be provided." >&2
+    echo "Usage: $0 [-b <value>] <theme_name>" >&2
+    exit 1
+fi
+
+# --- Main Logic ---
+
+if [ -n "$brightness_value" ]; then
+    # --- Brightness Flag IS GIVEN ---
+    # 1. Create a secure temp directory with a dot-free name.
+    #    THIS IS THE FIX to prevent gowall from misinterpreting the extension.
+    TEMP_DIR=$(mktemp -d gowall-temp-XXXXXX)
+
+    # 2. Set a trap to automatically clean up the temp directory on script exit.
+    trap 'rm -rf -- "$TEMP_DIR"' EXIT
+
+    echo "Brightness flag detected. Using temporary directory: $TEMP_DIR"
+
+    # 3. Step 1: Apply brightness effect, save to TEMP_DIR.
+    echo "Applying brightness factor: $brightness_value"
+    gowall effects br --dir "$WALL_BASE_DIR" -f "$brightness_value" --output "$TEMP_DIR"
+
+    # 4. Step 2: Apply theme to the brightened images from TEMP_DIR.
+    echo "Applying theme '$theme' to brightened images."
+    gowall convert --dir "$TEMP_DIR" -t "$theme" --output "$WALLPAPER_DIR"
+
+else
+    # --- Brightness Flag IS NOT GIVEN ---
+    echo "No brightness flag. Applying theme '$theme' to base images."
+    gowall convert --dir "$WALL_BASE_DIR" -t "$theme" --output "$WALLPAPER_DIR"
+fi
+
+echo "Wallpaper processing complete."

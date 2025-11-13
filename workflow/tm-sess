@@ -1,26 +1,36 @@
 #!/usr/bin/bash
 
 DIRS=(
-    "$HOME/.local/"
+    "$HOME/.local"
     "$HOME/documents"
     "$HOME/dev"
     "$HOME/src"
-	"$HOME"
+	"$HOME/dotfiles"
+	"$HOME/"
+	"$HOME/.typst"
+	"$HOME/.nvim/nvim/.config/"
+	"$HOME/documents/uni/"
+	"$HOME/.local/share/syncthing"
 )
 
 if [[ $# -eq 1 ]]; then
 	selected=$1
+	selected_name=$(basename "$selected" | tr . _)
+elif [[ $# -eq 2 ]]; then
+	selected=$1
+	selected_name=$2
 else
     selected=$(fd . "${DIRS[@]}" --type=dir --max-depth=1 --full-path --base-directory "$HOME" \
         | sed "s|^$HOME/||" \
-        | fzf --margin 10% --color="bw")
+        | fzf --margin 5% --color="bw")
 
     [[ $selected ]] && selected="$HOME/$selected"
+	selected_name=$(basename "$selected" | tr . _)
 fi
 
 [[ ! $selected ]] && exit 0
 
-selected_name=$(basename "$selected" | tr . _)
+
 
 if ! tmux has-session -t "$selected_name"; then
     tmux new-session -ds "$selected_name" -c "$selected"

@@ -18,10 +18,10 @@ rofi_options=$(awk -F '=' '{
     sub(/\/$/, "", trimmed_url);         # Remove trailing slash
 
     # Print the formatted string: "alias -- trimmed.url"
-    printf "%-20s -- %s\n", alias, trimmed_url
+    printf "%-15s -- %s\n", alias, trimmed_url
 }' "$bookmarks_file")
 
-chosen_entry=$(echo -e "$rofi_options" | bemenu -W 0.4 -l 9 -c -p "Bookmarks")
+chosen_entry=$(echo -e "$rofi_options" | bemenu -W 0.6 -l 9 -c -p "Bookmarks")
 
 if [ -z "$chosen_entry" ]; then
     exit 0

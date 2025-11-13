@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- CONFIGURATION ---
+# An array of base directories to search within.
+# Add or remove paths as needed. Note: The script is optimized
+# for paths within your home directory.
+DIRS=(
+    "$HOME/documents/uni/2025W/"
+    "$HOME/dev"
+    "$HOME/src"
+    "$HOME"
+)
+
+is_tmux(){
+	if [ "$TERM_PROGRAM" = tmux ]; then
+			
+		selected_name=$(basename "$selected_dir" | tr . _)
+
+		if ! tmux has-session -t "$selected_name"; then
+			tmux new-session -ds "$selected_name" -c "$selected_dir"
+			tmux select-window -t "$selected_name:1"
+  			tmux neww "${EDITOR}" "$full_path"
+		fi
+		tmux switch-client -t "$selected_name"
+  		tmux neww "${EDITOR}" "$full_path"
+	fi
+}
+# --- DEPENDENCY CHECK ---
+# Ensure required tools (fd and fzf) are installed.
+for cmd in fd fzf; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: Required command '$cmd' not found." >&2
+        echo "Please install it to use this script." >&2
+        exit 1
+    fi
+done
+
+# --- DIRECTORY SELECTION ---
+# Use fd to find directories (1 level deep in each DIRS path) and fzf to select one.
+# The $HOME prefix is removed for a cleaner display in fzf.
+selected=$(fd . "${DIRS[@]}" --type=dir --max-depth=1 --full-path --base-directory "$HOME" \
+    | sed "s|^$HOME/||" \
+    | fzf --prompt="Select Dir > " --height="40%" --margin="0%")
+
+# Exit if no directory was selected (e.g., user pressed Esc).
+if [[ -z "$selected" ]]; then
+    echo "No directory selected. Exiting."
+    exit 0
+fi
+
+# Reconstruct the full, absolute path to the selected directory.
+selected_dir="$HOME/$selected"
+
+# --- FILENAME INPUT ---
+read -r -p "Enter new filename (in $selected_dir/): " new_filename
+
+if [[ -z "$new_filename" ]]; then
+    echo "No filename entered. Exiting." >&2
+    exit 1
+fi
+
+full_path="$selected_dir/$new_filename"
+
+if [[ -e "$full_path" ]]; then
+	is_tmux
+    # echo "File '$full_path' already exists. Opening in '$EDITOR'" >&2
+    exit 1
+fi
+
+# --- TEMPLATE LOGIC ---
+
+# Function to find the .template file by searching recursively upwards from a starting directory.
+find_template_file() {
+    local dir="$1"
+    # Go up the directory tree until we find .template or hit the root.
+    while [[ "$dir" != "/" && -n "$dir" ]]; do
+        if [[ -f "$dir/.template" ]]; then
+            echo "$dir/.template"
+            return 0
+        fi
+        dir=$(dirname "$dir")
+    done
+    return 1
+}
+
+template_file=$(find_template_file "$selected_dir")
+
+# If no template is found, just create an empty file and exit.
+if [[ -z "$template_file" ]]; then
+    echo "No .template file found in parent directories. Creating an empty file."
+    touch "$full_path"
+    echo "File created: $full_path"
+    exit 0
+fi
+
+echo "Using template: $template_file"
+
+# --- VARIABLE SUBSTITUTION PARSING ---
+# Declare an associative array to hold variable substitutions.
+declare -A substitutions
+is_in_variables_section=false
+
+# First pass over the template to extract variables.
+while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^\[variables\]$ ]]; then
+        is_in_variables_section=true
+        continue
+    elif [[ "$line" =~ ^\[.*\]$ ]]; then
+        is_in_variables_section=false
+        continue
+    fi
+
+    if [[ "$is_in_variables_section" == "true" ]]; then
+        # Match lines like 'key = "value"' or "key = 'value'".
+        if [[ "$line" =~ ^([a-zA-Z0-9_-]+)\s*=\s*[\"\'](.*)[\"\']$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            substitutions["$key"]="$value"
+        fi
+    fi
+done < "$template_file"
+
+
+# --- TEMPLATE PARSING & FILE GENERATION ---
+file_ext="${new_filename##*.}"
+file_basename="${new_filename%.*}"
+final_content=""
+is_in_active_section=false
+is_in_variables_section=false # Reset for second pass
+current_name_regex=""
+
+# Second pass for content generation.
+while IFS= read -r line || [[ -n "$line" ]]; do
+    # Logic to skip the [variables] section during content generation
+    if [[ "$line" =~ ^\[variables\]$ ]]; then
+        is_in_variables_section=true
+        continue
+    elif [[ "$line" =~ ^\[.*\]$ ]]; then
+        is_in_variables_section=false
+    fi
+    if [[ "$is_in_variables_section" == "true" ]]; then
+        continue
+    fi
+
+    # Check if the line is a section header, e.g., [filetype=typ] or [typ.name=^lec.*]
+    if [[ "$line" =~ ^\[(.*)\]$ ]]; then
+        is_in_active_section=false # Deactivate previous section by default
+        current_name_regex=""
+        condition="${BASH_REMATCH[1]}"
+
+        # Case 1: Specific rule matching filetype and name, e.g., [typ.name=^lec.*]
+        if [[ "$condition" =~ ^([^.]+)\.name=(.*)$ ]]; then
+            local_ext="${BASH_REMATCH[1]}"
+            local_regex="${BASH_REMATCH[2]}"
+            if [[ "$file_ext" == "$local_ext" && "$file_basename" =~ $local_regex ]]; then
+                is_in_active_section=true
+                current_name_regex="$local_regex"
+            fi
+        # Case 2: General rule matching only filetype, e.g., [filetype=typ]
+        elif [[ "$condition" =~ ^filetype=(.*)$ ]]; then
+            local_ext="${BASH_REMATCH[1]}"
+            if [[ "$file_ext" == "$local_ext" ]]; then
+                is_in_active_section=true
+            fi
+        fi
+        continue # Move to the next line after processing a header
+    fi
+
+    # If we are in a section whose rules match the new file, process this line as content.
+    if [[ "$is_in_active_section" == "true" ]]; then
+        processed_line="$line"
+
+        # --- VARIABLE SUBSTITUTION ---
+        # Get the actual directory name.
+        dirname=$(basename "$selected_dir")
+        # Look up the substitution. If not found, use the original dirname.
+        substituted_dirname="${substitutions[$dirname]:-$dirname}"
+        # Replace the placeholder with the final value.
+        processed_line="${processed_line//\$dirname_of_file/$substituted_dirname}"
+
+        # Substitute variables like $Lecture{N+1}.
+        # This requires a name-based rule to be active to know which files to check.
+        if [[ -n "$current_name_regex" && "$processed_line" =~ \$([a-zA-Z_]+)\{N\+1\} ]]; then
+            # Extract a search prefix from the rule's regex (e.g., 'lec' from '^lec.*').
+            search_prefix=$(echo "$current_name_regex" | sed -n 's/\^//; s/\.\*//; s/\\//g; p')
+
+            if [[ -n "$search_prefix" ]]; then
+                max_n=0
+                # Find all files in the directory matching the prefix and find the highest number in their names.
+                while IFS= read -r f; do
+                    # Extract the first sequence of digits from the filename.
+                    if [[ $(basename "$f") =~ ([0-9]+) ]]; then
+                        num="${BASH_REMATCH[1]}"
+                        # Remove leading zeros for correct numeric comparison.
+                        num_no_zeros=${num##+(0)}
+                        [[ -z "$num_no_zeros" ]] && num_no_zeros=0
+
+                        if (( num_no_zeros > max_n )); then
+                            max_n=$num_no_zeros
+                        fi
+                    fi
+                done < <(find "$selected_dir" -maxdepth 1 -type f -name "${search_prefix}*")
+
+                next_n=$((max_n + 1))
+                # Replace the variable placeholder (e.g., "$Lecture{N+1}") with the calculated number.
+                processed_line=$(echo "$processed_line" | sed "s/\\\$[a-zA-Z_]\+{N+1}/$next_n/")
+            fi
+        fi
+
+        final_content+="$processed_line"$'\n'
+    fi
+done < "$template_file"
+
+# Write the generated content to the new file.
+printf "%s" "$final_content" > "$full_path"
+
+echo "Success! File created at: $full_path"
+
+is_tmux
+
+

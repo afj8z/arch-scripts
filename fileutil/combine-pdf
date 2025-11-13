@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+#
+# combine_pdfs - Merges multiple PDF files into one, with optional sorting.
+#
+
+# --- Configuration ---
+MERGE_TOOL="pdfunite"
+
+# --- Functions ---
+
+# Print usage and exit
+usage() {
+    echo "Usage: $0 [-s] <input_source(s)> <output.pdf>"
+    echo
+    echo "Merges multiple PDFs into a single file."
+    echo
+    echo "Arguments:"
+    echo "  <input_source(s)>: One or more PDF files, directories, or"
+    echo "                     quoted glob patterns (e.g., \"*.pdf\")."
+    echo "  <output.pdf>:      The name of the final merged PDF file."
+    echo
+    echo "Options:"
+    echo "  -s: Smartly sort all inputs using natural sort (version sort)."
+    echo "      This sorts 'file-2.pdf' before 'file-10.pdf'."
+    echo "      This is required to get the behavior you described for"
+    echo "      directories and globs (e.g., a-pdf-1.pdf, a-pdf-2.pdf)."
+    echo
+    echo "Examples:"
+    echo "  # Merge two files in the exact order given"
+    echo "  $0 file-B.pdf file-A.pdf combined.pdf"
+    echo
+    echo "  # Merge all PDFs from a directory, smartly sorted"
+    echo "  $0 -s /path/to/pdfs/ combined.pdf"
+    echo
+    echo "  # Merge all PDFs matching a glob, smartly sorted"
+    echo "  $0 -s chapter-*.pdf book.pdf"
+    echo
+    echo "  # Merge a mix of inputs, smartly sorted"
+    echo "  $0 -s cover.pdf \"chapters/*.pdf\" appendix.pdf book.pdf"
+    exit 1
+}
+
+# Check for required tool
+check_tool() {
+    if ! command -v "$1" &> /dev/null; then
+        echo "Error: Required tool '$1' is not installed." >&2
+        if [ "$1" = "pdfunite" ]; then
+            echo "Please install 'poppler-utils' (e.g., 'sudo apt install poppler-utils')." >&2
+        elif [ "$1" = "pdftk" ]; then
+            echo "Please install 'pdftk-java' or 'pdftk'." >&2
+        fi
+        exit 1
+    fi
+}
+
+# Run the merge command
+run_merge() {
+    local output_file="$1"
+    shift # Remove output file from list, rest are inputs
+    local input_files=("$@")
+
+    if [ ${#input_files[@]} -eq 0 ]; then
+        echo "Error: No valid PDF input files were found." >&2
+        exit 1
+    fi
+
+    echo "Merging ${#input_files[@]} PDF file(s) into '$output_file'..."
+    
+    # Uncomment the block below for debugging to see the final file order
+    # i=1
+    # for f in "${input_files[@]}"; do
+    #    echo "  $i: $f"
+    #    i=$((i+1))
+    # done
+
+    if [ "$MERGE_TOOL" = "pdfunite" ]; then
+        pdfunite "${input_files[@]}" "$output_file"
+    elif [ "$MERGE_TOOL" = "pdftk" ]; then
+        pdftk "${input_files[@]}" cat output "$output_file"
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "Successfully created '$output_file'."
+    else
+        echo "Error: PDF merge command failed." >&2
+        # Clean up potentially corrupt output file
+        rm -f "$output_file"
+        exit 1
+    fi
+}
+
+# --- Main Script ---
+
+# 1. Check for dependencies
+check_tool "$MERGE_TOOL"
+
+# 2. Check for minimum arguments
+if [ "$#" -lt 2 ]; then
+    usage
+fi
+
+# 3. Parse options
+do_sort=0
+if [ "$1" = "-s" ]; then
+    do_sort=1
+    shift # Remove -s from args
+fi
+
+# 4. Separate inputs from output
+# Check again for min args after shift
+if [ "$#" -lt 2 ]; then
+    echo "Error: Missing input and output files." >&2
+    usage
+fi
+
+output_file="${@: -1}" # Get the very last argument
+inputs=()
+i=1
+total_args=$#
+for arg in "$@"; do
+    [ $i -eq $total_args ] && break
+    inputs+=("$arg")
+    i=$((i+1))
+done
+
+# 5. Validate output file
+if [[ "$output_file" != *.pdf ]]; then
+    echo "Warning: Output file '$output_file' does not end with .pdf. Appending."
+    output_file="${output_file}.pdf"
+fi
+# Get absolute path for output file for comparison
+# `realpath -m` resolves "missing" paths, which is what we want
+resolved_output=$(realpath -m "$output_file" 2>/dev/null)
+if [ -z "$resolved_output" ]; then
+    # Fallback for systems without `realpath -m`
+    if [[ "$output_file" == /* ]]; then
+        resolved_output="$output_file"
+    else
+        resolved_output="$(pwd)/$output_file"
+    fi
+fi
+
+
+# 6. Build the list of files to merge
+files_to_merge=()
+for item in "${inputs[@]}"; do
+    if [ -d "$item" ]; then
+        # Input is a directory
+        echo "Info: Expanding directory: $item"
+        # Find files, read them null-terminated into the array
+        while IFS= read -r -d '' file; do
+            files_to_merge+=("$file")
+        done < <(find "$item" -maxdepth 1 -type f -name "*.pdf" -print0)
+        
+    elif [ -f "$item" ]; then
+        # Input is a file
+        if [[ "$item" == *.pdf ]]; then
+            files_to_merge+=("$item")
+        else
+            echo "Warning: Skipping non-PDF file: $item" >&2
+        fi
+        
+    else
+        # Input is not a file or dir.
+        # If it's an *unquoted* glob, shell expanded it, and each
+        # file was handled by the `[ -f "$item" ]` block.
+        # If it's a *quoted* glob (e.g., "a-*.pdf"), expand it here.
+        dir_part=$(dirname "$item")
+        glob_part=$(basename "$item")
+        
+        found_glob_files=0
+        while IFS= read -r -d '' file; do
+            files_to_merge+=("$file")
+            found_glob_files=1
+        done < <(find "$dir_part" -maxdepth 1 -type f -name "$glob_part" -print0)
+
+        if [ $found_glob_files -eq 0 ]; then
+             echo "Warning: Input '$item' not found or glob pattern matched no files." >&2
+        fi
+    fi
+done
+
+# 7. Sort the *entire* list if -s was given
+final_file_list=()
+if [ $do_sort -eq 1 ]; then
+    echo "Info: Smart-sorting the complete list of input files..."
+    while IFS= read -r line; do
+        # Resolve input path for comparison
+        resolved_input=$(realpath -m "$line" 2>/dev/null)
+        if [ -z "$resolved_input" ]; then
+             if [[ "$line" == /* ]]; then resolved_input="$line"; else resolved_input="$(pwd)/$line"; fi
+        fi
+        
+        if [ "$resolved_input" = "$resolved_output" ]; then
+            echo "Error: Output file '$output_file' is also an input file. Aborting." >&2
+            exit 1
+        fi
+        final_file_list+=("$line")
+    done < <(printf "%s\n" "${files_to_merge[@]}" | sort -V)
+else
+    echo "Info: Using inputs in the order provided."
+    for file in "${files_to_merge[@]}"; do
+        # Check for output file
+        resolved_input=$(realpath -m "$file" 2>/dev/null)
+        if [ -z "$resolved_input" ]; then
+             if [[ "$file" == /* ]]; then resolved_input="$file"; else resolved_input="$(pwd)/$file"; fi
+        fi
+
+         if [ "$resolved_input" = "$resolved_output" ]; then
+            echo "Error: Output file '$output_file' is also an input file. Aborting." >&2
+            exit 1
+        fi
+        final_file_list+=("$file")
+    done
+fi
+
+run_merge "$output_file" "${final_file_list[@]}"

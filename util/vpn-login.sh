@@ -50,17 +50,19 @@ echo "You will be prompted for your TOTP."
 #
 # Note: openconnect often requires root privileges to manage network interfaces.
 # Therefore, this script should typically be run with `sudo`.
-gpg -q -d "$PASS_PATH/$PASS_ENTRY"| cat - /dev/tty | sudo openconnect \
-    --protocol="$VPN_PROTOCOL" \
-	--useragent="$VPN_AGENT" \
-    --user="$VPN_USER" \
-    --passwd-on-stdin \
-    "$VPN_SERVER" || {
-        echo "Connection failed or was terminated with an error."
-        echo "Pausing for 10 seconds as requested by the provider..."
-        sleep 10
-        exit 1 # Ensure the script exits with a failure status
-    }
-
-echo "VPN connection terminated successfully."
+gpg -q -d "$PASS_PATH/$PASS_ENTRY"
+# | cat 
+# - /dev/tty | sudo openconnect \
+#     --protocol="$VPN_PROTOCOL" \
+# 	--useragent="$VPN_AGENT" \
+#     --user="$VPN_USER" \
+#     --passwd-on-stdin \
+#     "$VPN_SERVER" || {
+#         echo "Connection failed or was terminated with an error."
+#         echo "Pausing for 10 seconds as requested by the provider..."
+#         sleep 10
+#         exit 1 # Ensure the script exits with a failure status
+#     }
+#
+# echo "VPN connection terminated successfully."
 

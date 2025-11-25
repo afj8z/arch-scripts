@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Send audio / brightness notifications to dunst (progress style)
-# deps: dunstify, wpctl (PipeWire), brightnessctl
+# deps: notify-send, wpctl (PipeWire), brightnessctl
 # icons: Papirus (audio-volume-*, display-brightness-*-symbolic)
 
 set -eu
@@ -81,26 +81,26 @@ notify_volume() {
   muted="$(is_sink_muted)"
   if [ "$muted" = "[muted]" ] || [ "$vol" -le 0 ]; then
 	summary=$(printf "Vol %s mut" "$(inline_bar "0000" "$BAR_WIDTH")")
-    dunstify -a notify-media -h "$tag_audio" "$summary" -t 1500 --icon audio-volume-muted
+    notify-send -a notify-media -h "$tag_audio" "$summary" -t 1500 --icon audio-volume-muted
   else
 	summary=$(printf "Vol %s %d%%" "$(inline_bar "$vol" "$BAR_WIDTH")" "$vol")
-    dunstify -a notify-media -h "$tag_audio" "$summary" -t 1500 --icon "$(icon_for_volume "$vol")"
+    notify-send -a notify-media -h "$tag_audio" "$summary" -t 1500 --icon "$(icon_for_volume "$vol")"
   fi
 }
 
 notify_brightness() {
   br="$(get_brightness_pct)"
   summary=$(printf "Bri %s %d%%" "$(inline_bar "$br" "$BAR_WIDTH")" "$br")
-  dunstify -a notify-media -h "$tag_bright" "$summary" -t 1500 --icon "$(icon_for_brightness "$br")"
+  notify-send -a notify-media -h "$tag_bright" "$summary" -t 1500 --icon "$(icon_for_brightness "$br")"
 }
 
 notify_mic() {
   # Default source mute state
   micmuted="$(wpctl get-mute @DEFAULT_AUDIO_SOURCE@ | awk '{print tolower($2)}')"
   if [ "$micmuted" = "true" ]; then
-    dunstify -a notify-media -h "$tag_mic" "Mic: Muted" -t 1500 --icon microphone-sensitivity-muted-symbolic
+    notify-send -a notify-media -h "$tag_mic" "Mic: Muted" -t 1500 --icon microphone-sensitivity-muted-symbolic
   else
-    dunstify -a notify-media -h "$tag_mic" "Mic: On" -t 1500 --icon microphone-sensitivity-high-symbolic
+    notify-send -a notify-media -h "$tag_mic" "Mic: On" -t 1500 --icon microphone-sensitivity-high-symbolic
   fi
 }
 

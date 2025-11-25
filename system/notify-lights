@@ -3,12 +3,12 @@
 notifyBrightness() {
         brightness="$1"
         if [ $brightness -eq 0 ]; then
-                dunstify -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-off-symbolic
+                notify-send -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-off-symbolic
         elif [ $brightness -le 30 ]; then
-                dunstify -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-low-symbolic
+                notify-send -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-low-symbolic
         elif [ $brightness -le 70 ]; then
-                dunstify -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-medium-symbolic
+                notify-send -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-medium-symbolic
         else
-                dunstify -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-high-symbolic
+                notify-send -h string:x-canonical-private-synchronous:brightness "Brightness: " -h int:value:"$brightness" -t 1500 --icon display-brightness-high-symbolic
         fi
 }

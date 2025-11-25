@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+case "$(printf "mako" | rofi -dmenu -i -c -l 4)" in
+	mako) makoctl reload
+	# *) exit 1 ;;
+esac

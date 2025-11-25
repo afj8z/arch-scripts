@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+PROMPT_FILE="$HOME/.local/scripts/data/ai_prompts.txt"
+CLIPBOARD_CMD="wl-copy"
+BEMENU_PROMPT="Prompt:"
+HEADER_PREFIX="::"
+CONFIG_MARKER="[C] "
+CONFIG_DELIMITER="---"
+TERMINAL_CMD="kitty --title floating-term"
+
+# Path to your permanent minimal config file
+MINI_NVIM_CONFIG="$HOME/.config/nvim/profs/prompt_menu.lua"
+
+## 🛑 Dependency Checks
+if ! command -v bemenu &> /dev/null; then echo "Error: bemenu not found." >&2; exit 1; fi
+clipboard_tool=$(echo $CLIPBOARD_CMD | awk '{print $1}')
+if ! command -v "$clipboard_tool" &> /dev/null; then echo "Error: $clipboard_tool not found." >&2; exit 1; fi
+
+## 🛠 Helper Function
+get_prompt_body() {
+  local choice_to_find="$1"
+  awk -v choice="$choice_to_find" -v prefix="$HEADER_PREFIX" '
+    $0 ~ "^" prefix {
+        if (substr($0, length(prefix) + 1) == choice) {
+            printing = 1
+            next
+        } else {
+            printing = 0
+        }
+    }
+    printing == 1 {
+        print
+    }' "$PROMPT_FILE"
+}
+
+## 🚀 Main Script Logic
+headers=$(awk -v prefix="$HEADER_PREFIX" '
+    $0 ~ "^" prefix { 
+        print substr($0, length(prefix) + 1) 
+    }' "$PROMPT_FILE"
+)
+
+choice=$(echo "$headers" | bemenu -W 0.35 -c -l 5 -p "$BEMENU_PROMPT")
+
+if [ -z "$choice" ]; then
+    echo "No prompt selected. Exiting."
+    exit 0
+fi
+
+if [[ "$choice" == "$CONFIG_MARKER"* ]]; then
+    
+    ### CONFIGURABLE PROMPT ###
+
+    clean_choice="${choice#"$CONFIG_MARKER"}"
+    full_prompt_text=$(get_prompt_body "$choice")
+
+    if ! echo "$full_prompt_text" | grep -qF -- "$CONFIG_DELIMITER"; then
+        notify-send -t 5000 -u critical "Prompt Error" \
+          "Prompt '$clean_choice' is marked [C] but has no '$CONFIG_DELIMITER' line."
+        exit 1
+    fi
+
+    config_part=$(echo "$full_prompt_text" | awk -v d="$CONFIG_DELIMITER" '$0 == d {exit} {print}')
+    static_part=$(echo "$full_prompt_text" | awk -v d="$CONFIG_DELIMITER" 'p {print} $0 == d {p=1}')
+
+    TEMP_FILE=$(mktemp)
+    trap "rm -f $TEMP_FILE" EXIT
+    
+    echo "$config_part" > "$TEMP_FILE"
+
+    # Launch nvim. On startup, it runs the "find-colon-and-change"
+    # command once, placing you at the first field in insert mode.
+    $TERMINAL_CMD nvim -u "$MINI_NVIM_CONFIG" +":normal! /:\<CR>lc$" "$TEMP_FILE"
+
+    # Read the edited file directly. No more 'sed' cleanup.
+    edited_config_part=$(cat "$TEMP_FILE")
+
+    final_prompt="$edited_config_part"$'\n'"$CONFIG_DELIMITER"$'\n'"$static_part"
+
+    printf "%s" "$final_prompt" | $CLIPBOARD_CMD
+    
+else
+    
+    ### NORMAL PROMPT ###
+    
+    prompt_text=$(get_prompt_body "$choice")
+    printf "%s" "$prompt_text" | $CLIPBOARD_CMD
+
+fi
+
+if command -v notify-send &> /dev/null; then
+    notify-send -t 2000 "Prompt Copied" "'$choice' copied to clipboard." -i "edit-copy"
+fi
+
+echo "Copied prompt '$choice' to clipboard."

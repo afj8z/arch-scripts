@@ -18,7 +18,7 @@ rofi_options=$(awk -F '=' '{
     printf "%-20s\n", app_name
 }' "$index_file")
 
-chosen_entry=$(echo -e "$rofi_options" | bemenu -W 0.3 -l 4 -c -p "WebApp")
+chosen_entry=$(echo -e "$rofi_options" | bemenu -W 0.3 -l 4 -c -p " WebApp")
 
 if [ -z "$chosen_entry" ]; then
     exit 0

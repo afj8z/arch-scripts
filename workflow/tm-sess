@@ -5,36 +5,37 @@ DIRS=(
     "$HOME/documents"
     "$HOME/dev"
     "$HOME/src"
-	"$HOME/dotfiles"
-	"$HOME/"
-	"$HOME/.typst"
-	"$HOME/.nvim/nvim/.config/"
-	"$HOME/documents/uni/"
-	"$HOME/.local/share/syncthing"
+    "$HOME/dotfiles"
+    "$HOME/"
+    "$HOME/.typst"
+    "$HOME/.nvim/nvim/.config/"
+    "$HOME/documents/uni/"
+    "$HOME/.local/share/syncthing"
 )
 
 if [[ $# -eq 1 ]]; then
-	selected=$1
-	selected_name=$(basename "$selected" | tr . _)
+    selected=$1
+    selected_name=$(basename "$selected" | tr . _)
 elif [[ $# -eq 2 ]]; then
-	selected=$1
-	selected_name=$2
+    selected=$1
+    selected_name=$2
 else
     selected=$(fd . "${DIRS[@]}" --type=dir --max-depth=1 --full-path --base-directory "$HOME" \
         | sed "s|^$HOME/||" \
         | fzf --margin 5% --color="bw")
 
     [[ $selected ]] && selected="$HOME/$selected"
-	selected_name=$(basename "$selected" | tr . _)
+    selected_name=$(basename "$selected" | tr . _)
 fi
 
 [[ ! $selected ]] && exit 0
 
-
-
-if ! tmux has-session -t "$selected_name"; then
+# Check for exact match ("nvim" and "nvim-plugin" won't match)
+if ! tmux has-session -t "=${selected_name}" 2> /dev/null; then
     tmux new-session -ds "$selected_name" -c "$selected"
-    tmux select-window -t "$selected_name:1"
+    # Note: If base-index is 0, this might fail unless window 1 is created
+    # If base-index is 1, this works fine.
+    tmux select-window -t "${selected_name}:1" 2> /dev/null
 fi
 
-tmux switch-client -t "$selected_name"
+tmux switch-client -t "=${selected_name}"
